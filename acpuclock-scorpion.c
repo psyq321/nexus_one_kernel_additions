@@ -1,22 +1,18 @@
 /*
-* Copyright (c) 2009 Google, Inc.
-* Copyright (c) 2008 QUALCOMM Incorporated.
-*
-* This software is licensed under the terms of the GNU General Public
-* License version 2, as published by the Free Software Foundation, and
-* may be copied, distributed, and modified under those terms.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-* 
-*/
-
-/* Note: Added AVS support for Nexus One kernel support by Ivan Dimkovic */
-
-/* idimkovic:  remove below line if you do not wish AVS support */
-#define CONFIG_MSM_CPU_AVS	1
+ * Copyright (c) 2009 Google, Inc.
+ * Copyright (c) 2008 QUALCOMM Incorporated.
+ *
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * Note: Added AVS Support (Ivan Dimkovic)
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -34,6 +30,12 @@
 
 #include "acpuclock.h"
 #include "proc_comm.h"
+
+/* idimkovic: remove this if you wish  no AVS support */
+#define CONFIG_MSM_CPU_AVS	1
+
+/* idimkovic: remove this if you wish no overclocking */
+#define	USE_OVERCLOCKING	1
 
 #if 0
 #define DEBUG(x...) pr_info(x)
@@ -76,7 +78,6 @@ struct clkctl_acpu_speed {
 #define SRC_AXI		2 /* 128 MHz */
 #define SRC_PLL1	3 /* 768 MHz */
 
-/* XTRA UV */
 struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{  19200, CCTL(CLK_TCXO, 1),		SRC_RAW, 0, 0, 1000 },
 	{ 128000, CCTL(CLK_TCXO, 1),		SRC_AXI, 0, 0, 1000 },
@@ -100,23 +101,24 @@ struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 960000, CCTL(CLK_TCXO, 1),		SRC_SCPLL, 0x19, 0, 1250 },
 	{ 998400, CCTL(CLK_TCXO, 1),		SRC_SCPLL, 0x1A, 0, 1250 },
 
-	/* idimkovic:  comment out entries below if you wish no overclocking! */
+#ifdef	USE_OVERCLOCKING
+	/* idimkovic: overclocked frequencies */
 	{ 1036800, CCTL(CLK_TCXO, 1), 		SRC_SCPLL, 0x1B, 0, 1250 },
 	{ 1075200, CCTL(CLK_TCXO, 1), 		SRC_SCPLL, 0x1C, 0, 1250 },
 	{ 1113600, CCTL(CLK_TCXO, 1), 		SRC_SCPLL, 0x1D, 0, 1275 },
+#endif
 
-	/* terminator */
 	{ 0 },
 };
 
 /* select the standby clock that is used when switching scpll
-* frequencies
-*
-* Currently: MPLL
-*/
+ * frequencies
+ *
+ * Currently: MPLL
+ */
 struct clkctl_acpu_speed *acpu_stby = &acpu_freq_tbl[2];
 #define IS_ACPU_STANDBY(x)	(((x)->clk_cfg == acpu_stby->clk_cfg) && \
-	((x)->clk_sel == acpu_stby->clk_sel))
+				 ((x)->clk_sel == acpu_stby->clk_sel))
 
 struct clkctl_acpu_speed *acpu_mpll = &acpu_freq_tbl[2];
 
@@ -140,14 +142,14 @@ static void __init acpuclk_init_cpufreq_table(void)
 		vdd = acpu_freq_tbl[i].vdd;
 		/* Allow mpll and the first scpll speeds */
 		if (acpu_freq_tbl[i].acpu_khz == acpu_mpll->acpu_khz ||
-			acpu_freq_tbl[i].acpu_khz == 384000) {
-				freq_table[i].frequency = acpu_freq_tbl[i].acpu_khz;
-				continue;
+				acpu_freq_tbl[i].acpu_khz == 384000) {
+			freq_table[i].frequency = acpu_freq_tbl[i].acpu_khz;
+			continue;
 		}
 
 		/* Add to the table */
 		//if (vdd != acpu_freq_tbl[i + 1].vdd)
-		freq_table[i].frequency = acpu_freq_tbl[i].acpu_khz;
+		 freq_table[i].frequency = acpu_freq_tbl[i].acpu_khz;
 	}
 
 	freq_table[i].index = i;
@@ -175,7 +177,6 @@ static struct clock_state drv_state = { 0 };
 
 static DEFINE_SPINLOCK(acpu_lock);
 
-
 #define PLLMODE_POWERDOWN	0
 #define PLLMODE_BYPASS		1
 #define PLLMODE_STANDBY		2
@@ -195,7 +196,7 @@ static int __init acpu_avs_init(int (*set_vdd) (int), int khz)
 
 	for (i = 0; acpu_freq_tbl[i].acpu_khz; i++) {
 		freq_count++;
-		if (acpu_freq_tbl[i].acpu_khz == 1113600)  /* idimkovic: ugly hack, TODO: replace it with proper code! */
+		if (acpu_freq_tbl[i].acpu_khz == khz)
 			freq_index = i;
 	}
 
@@ -312,8 +313,8 @@ static int acpuclk_set_vdd_level(int vdd)
 		return drv_state.acpu_set_vdd(vdd);
 	else {
 		/* Assume that the PMIC supports scaling the processor
-		* to its maximum frequency at its default voltage.
-		*/
+		 * to its maximum frequency at its default voltage.
+		 */
 		return 0;
 	}
 }
@@ -325,8 +326,8 @@ static int acpu_set_vdd(int vdd)
 		if (IS_ERR(drv_state.regulator)) {
 			pr_info("acpuclk_set_vdd_level %d no regulator\n", vdd);
 			/* Assume that the PMIC supports scaling the processor
-			* to its maximum frequency at its default voltage.
-			*/
+			 * to its maximum frequency at its default voltage.
+			 */
 			return 0;
 		}
 		pr_info("acpuclk_set_vdd_level got regulator\n");
@@ -368,15 +369,16 @@ int acpuclk_set_rate(unsigned long rate, int for_power_collapse)
 #ifdef CONFIG_MSM_CPU_AVS
 		/* Notify avs before changing frequency */		
 		if (avs_adjust_freq(freq_index, 1)) {
-			printk(KERN_ERR
-				"acpuclock: Unable to increase ACPU "
-				"vdd.\n");
+			pr_err(	"acpuclock: Unable to increase ACPU vdd.\n");
+			
+			mutex_unlock(&drv_state.lock);
+			return -EINVAL;			
 		}
 #endif
 		/* Increase VDD if needed. */
 		if (next->vdd > cur->vdd) {
 			if (acpuclk_set_vdd_level(next->vdd)) {
-				pr_err("acpuclock: Unable to increase ACPU VDD from %d to %d setting rate to %d.\n", cur->vdd, next->vdd, (int)rate);
+			 pr_err("acpuclock: Unable to increase ACPU VDD from %d to %d setting rate to %d.\n", cur->vdd, next->vdd, (int)rate);
 
 				mutex_unlock(&drv_state.lock);
 				return -EINVAL;
@@ -387,8 +389,8 @@ int acpuclk_set_rate(unsigned long rate, int for_power_collapse)
 	spin_lock_irqsave(&acpu_lock, flags);
 
 	DEBUG("sel=%d cfg=%02x lv=%02x -> sel=%d, cfg=%02x lv=%02x\n",
-		cur->clk_sel, cur->clk_cfg, cur->sc_l_value,
-		next->clk_sel, next->clk_cfg, next->sc_l_value);
+	      cur->clk_sel, cur->clk_cfg, cur->sc_l_value,
+	      next->clk_sel, next->clk_cfg, next->sc_l_value);
 
 	if (next->clk_sel == SRC_SCPLL) {
 		if (!IS_ACPU_STANDBY(cur))
@@ -414,14 +416,17 @@ int acpuclk_set_rate(unsigned long rate, int for_power_collapse)
 
 #ifdef CONFIG_MSM_CPU_AVS
 		/* notify avs after changing frequency */	
-		if (avs_adjust_freq(freq_index, 0))
-			printk(KERN_ERR
-			"acpuclock: Unable to drop ACPU vdd.\n");
+		if (avs_adjust_freq(freq_index, 0)) {
+			pr_err("acpuclock: Unable to drop ACPU vdd.\n");
+			
+			mutex_unlock(&drv_state.lock);
+			return -EINVAL;
+		}
 #endif
 		/* Drop VDD level if we can. */
 		if (next->vdd < cur->vdd) {
 			if (acpuclk_set_vdd_level(next->vdd))
-				pr_err("acpuclock: Unable to drop ACPU VDD from %d to %d setting rate to %d.\n", cur->vdd, next->vdd, (int) rate);
+			pr_err("acpuclock: Unable to drop ACPU VDD from %d to %d setting rate to %d.\n", cur->vdd, next->vdd, (int) rate);
 		}
 		mutex_unlock(&drv_state.lock);
 	}
@@ -435,16 +440,16 @@ static unsigned __init acpuclk_find_speed(void)
 
 	sel = readl(SPSS_CLK_SEL_ADDR);
 	switch ((sel & 6) >> 1) {
-case 1:
-	val = readl(SCPLL_FSM_CTL_EXT_ADDR);
-	val = (val >> 3) & 0x3f;
-	return val * 38400;
-case 2:
-	return 128000;
-default:
-	pr_err("acpu_find_speed: failed\n");
-	BUG();
-	return 0;
+	case 1:
+		val = readl(SCPLL_FSM_CTL_EXT_ADDR);
+		val = (val >> 3) & 0x3f;
+		return val * 38400;
+	case 2:
+		return 128000;
+	default:
+		pr_err("acpu_find_speed: failed\n");
+		BUG();
+		return 0;
 	}
 }
 
@@ -463,12 +468,12 @@ static void __init acpuclk_init(void)
 	init_khz = acpuclk_find_speed();
 
 	/* request the modem pll, and then drop it. We don't want to keep a
-	* ref to it, but we do want to make sure that it is initialized at
-	* this point. The ARM9 will ensure that the MPLL is always on
-	* once it is fully booted, but it may not be up by the time we get
-	* to here. So, our pll_request for it will block until the mpll is
-	* actually up. We want it up because we will want to use it as a
-	* temporary step during frequency scaling. */
+	 * ref to it, but we do want to make sure that it is initialized at
+	 * this point. The ARM9 will ensure that the MPLL is always on
+	 * once it is fully booted, but it may not be up by the time we get
+	 * to here. So, our pll_request for it will block until the mpll is
+	 * actually up. We want it up because we will want to use it as a
+	 * temporary step during frequency scaling. */
 	pll_request(PCOM_MODEM_PLL, 1);
 	pll_request(PCOM_MODEM_PLL, 0);
 
@@ -478,8 +483,8 @@ static void __init acpuclk_init(void)
 	}
 
 	/* Move to 883MHz for boot, which is a safe frequency
-	* for all versions of Scorpion at the moment.
-	*/
+	 * for all versions of Scorpion at the moment.
+	 */
 	speed = acpu_freq_tbl;
 	for (;;) {
 		if (speed->acpu_khz == 883200)
@@ -493,10 +498,10 @@ static void __init acpuclk_init(void)
 
 	if (init_khz != speed->acpu_khz) {
 		/* Bootloader needs to have SCPLL operating, but we're
-		* going to step over to the standby clock and make sure
-		* we select the right frequency on SCPLL and then
-		* step back to it, to make sure we're sane here.
-		*/
+		 * going to step over to the standby clock and make sure
+		 * we select the right frequency on SCPLL and then
+		 * step back to it, to make sure we're sane here.
+		 */
 		select_clock(acpu_stby->clk_sel, acpu_stby->clk_cfg);
 		scpll_power_down();
 		scpll_set_freq(speed->sc_l_value);
@@ -506,7 +511,7 @@ static void __init acpuclk_init(void)
 
 	for (speed = acpu_freq_tbl; speed->acpu_khz; speed++)
 		speed->lpj = cpufreq_scale(loops_per_jiffy,
-		init_khz, speed->acpu_khz);
+					   init_khz, speed->acpu_khz);
 
 	loops_per_jiffy = drv_state.current_speed->lpj;
 }
@@ -563,8 +568,8 @@ void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *clkdata)
 #ifdef CONFIG_MSM_CPU_AVS
 	if (!acpu_avs_init(drv_state.acpu_set_vdd,
 		drv_state.current_speed->acpu_khz)) {
-			/* avs init successful. avs will handle voltage changes */
-			drv_state.acpu_set_vdd = NULL;
+		/* avs init successful. avs will handle voltage changes */
+		drv_state.acpu_set_vdd = NULL;
 	} else {
 		pr_err("acpuclock: Unable to initialize AVS!\n");
 	}
